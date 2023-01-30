@@ -14,7 +14,7 @@ import { ToastService } from 'app/shared/toast/ToastService';
 import { AuthenticationState } from 'app/store/authentication.state';
 import * as moment from 'moment';
 import { forkJoin } from 'rxjs';
-import { finalize } from 'rxjs/operators';
+import { finalize, first } from 'rxjs/operators';
 import { ConsumerCreateModalComponent } from '../consumer-create-modal/consumer-create-modal.component';
 import {
     CloseEvent,
@@ -22,6 +22,8 @@ import {
     ConsumerDetailsModalComponent
 } from '../consumer-details-modal/consumer-details-modal.component';
 import { NzModalService } from 'ng-zorro-antd/modal';
+import {HttpClient} from "@angular/common/http";
+import {DriversService} from "../../../../service/drivers/drivers.service";
 
 const usernamePattern = new RegExp('^[a-zA-Z0-9._-]{1,}$');
 
@@ -70,6 +72,8 @@ export class UserEditComponent implements OnInit {
     loadingLocalReset: boolean;
     showLDAPSigninForm: boolean;
 
+    githubDriver: boolean;
+
     constructor(
         private _authenticationService: AuthenticationService,
         private _userService: UserService,
@@ -79,9 +83,20 @@ export class UserEditComponent implements OnInit {
         private _store: Store,
         private _toast: ToastService,
         private _cd: ChangeDetectorRef,
-        private _modalService: NzModalService
+        private _modalService: NzModalService,
+        private _http: HttpClient,
+        private _driverService: DriversService
     ) {
         this.currentAuthSummary = this._store.selectSnapshot(AuthenticationState.summary);
+
+        this._driverService.getDrivers()
+            .pipe(finalize(() => {
+                this.loading = false;
+                this._cd.markForCheck();
+            }))
+            .subscribe((data) => {
+                this.githubDriver = data.filter(d => d === 'github').length !== 0
+            });
 
         this.menuItems = new Map<string, string>();
         this.selectedItem = "profile";
@@ -355,6 +370,16 @@ export class UserEditComponent implements OnInit {
             this.username = params['username'];
             this.getUser();
         });
+    }
+
+    linkGithubUser(): void {
+        this._userService.askLink(this.user.username, 'github', "/settings/user/" + this.user.username)
+            .pipe(first())
+            .subscribe(redirect  => {
+                if (redirect.method.toLowerCase() === ('get')) {
+                    window.location.replace(redirect.url);
+                }
+        })
     }
 
     clickConsumerDetails(selected: AuthConsumer): void {

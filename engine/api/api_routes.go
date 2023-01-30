@@ -112,6 +112,8 @@ func (api *API) InitRouter() {
 	r.Handle("/admin/features", Scope(sdk.AuthConsumerScopeAdmin), r.GET(api.getAdminFeatureFlipping, service.OverrideAuth(api.authAdminMiddleware)), r.POST(api.postAdminFeatureFlipping, service.OverrideAuth(api.authAdminMiddleware)))
 	r.Handle("/admin/features/{name}", Scope(sdk.AuthConsumerScopeAdmin), r.GET(api.getAdminFeatureFlippingByName, service.OverrideAuth(api.authAdminMiddleware)), r.PUT(api.putAdminFeatureFlipping, service.OverrideAuth(api.authAdminMiddleware)), r.DELETE(api.deleteAdminFeatureFlipping, service.OverrideAuth(api.authAdminMiddleware)))
 
+	r.Handle("/drivers", ScopeNone(), r.GET(api.getDriversHandler))
+
 	// Download file
 	r.Handle("/download", ScopeNone(), r.GET(api.downloadsHandler))
 	r.Handle("/download/plugin/{name}/binary/{os}/{arch}", ScopeNone(), r.GET(api.getGRPCluginBinaryHandler, service.OverrideAuth(service.NoAuthMiddleware)))
@@ -378,6 +380,8 @@ func (api *API) InitRouter() {
 	r.Handle("/user/{permUsernamePublic}", Scope(sdk.AuthConsumerScopeUser), r.GET(api.getUserHandler), r.PUT(api.putUserHandler), r.DELETE(api.deleteUserHandler))
 	r.Handle("/user/{permUsernamePublic}/group", Scope(sdk.AuthConsumerScopeUser), r.GET(api.getUserGroupsHandler))
 	r.Handle("/user/{permUsername}/contact", Scope(sdk.AuthConsumerScopeUser), r.GET(api.getUserContactsHandler))
+	r.Handle("/user/{permUsername}/{consumerType}/link/ask", Scope(sdk.AuthConsumerScopeUser), r.POST(api.postAskLinkExternalUserWithCDSHandler))
+	r.Handle("/user/{permUsername}/{consumerType}/link/callback", Scope(sdk.AuthConsumerScopeUser), r.POST(api.postLinkExternalUserWithCDSHandler))
 	r.Handle("/user/{permUsername}/auth/consumer", Scope(sdk.AuthConsumerScopeAccessToken), r.GET(api.getConsumersByUserHandler), r.POST(api.postConsumerByUserHandler))
 	r.Handle("/user/{permUsername}/auth/consumer/{permConsumerID}", Scope(sdk.AuthConsumerScopeAccessToken), r.DELETE(api.deleteConsumerByUserHandler))
 	r.Handle("/user/{permUsername}/auth/consumer/{permConsumerID}/regen", Scope(sdk.AuthConsumerScopeAccessToken), r.POST(api.postConsumerRegenByUserHandler))

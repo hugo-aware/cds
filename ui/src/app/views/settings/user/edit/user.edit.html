@@ -53,6 +53,15 @@
                                                name="admin" [ngModel]="user.ring" [readonly]="true">
                                     </nz-form-control>
                                 </nz-form-item>
+                                <nz-form-item *ngIf="githubDriver">
+                                    <nz-form-label [nzSpan]="2">Link Github user</nz-form-label>
+                                    <nz-form-control>
+                                        <button nz-button nzType="primary" (click)="linkGithubUser()">
+                                            <i nz-icon nzType="github" nzTheme="outline"></i>
+                                            Github Link
+                                        </button>
+                                    </nz-form-control>
+                                </nz-form-item>
                             </nz-col>
                         </nz-row>
                         <nz-row *ngIf="editable">

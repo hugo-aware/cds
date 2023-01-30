@@ -1,6 +1,11 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable } from '@angular/core';
-import { AuthConsumer, AuthConsumerCreateResponse, AuthSession } from 'app/model/authentication.model';
+import {
+    AuthConsumer,
+    AuthConsumerCreateResponse, AuthConsumerSigninResponse,
+    AuthDriverSigningRedirect,
+    AuthSession
+} from 'app/model/authentication.model';
 import { Bookmark } from 'app/model/bookmark.model';
 import { Group } from 'app/model/group.model';
 import { AuthentifiedUser, Schema, UserContact } from 'app/model/user.model';
@@ -78,5 +83,20 @@ export class UserService {
             p = p.append('filter', filter);
         }
         return this._http.get<Schema>('/user/schema', {params: p});
+    }
+
+    link(username: string, consumerType: string, code: string, state: string): Observable<any> {
+        return this._http.post(`/user/${username}/${consumerType}/link/callback`, {
+            code,
+            state
+        });
+    }
+
+    askLink(username: string, consumerType: string, redirectURI: string): Observable<AuthDriverSigningRedirect> {
+        let params = new HttpParams();
+        if (redirectURI) {
+            params = params.append('redirect_uri', redirectURI);
+        }
+        return this._http.post<AuthDriverSigningRedirect>(`/user/${username}/${consumerType}/link/ask`, {params})
     }
 }

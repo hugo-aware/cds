@@ -4,15 +4,13 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/ovh/cds/engine/api/organization"
-
 	"github.com/gorilla/mux"
 	"github.com/lib/pq"
-
 	"github.com/rockbears/log"
 
 	"github.com/ovh/cds/engine/api/authentication"
 	"github.com/ovh/cds/engine/api/group"
+	"github.com/ovh/cds/engine/api/organization"
 	"github.com/ovh/cds/engine/api/user"
 	"github.com/ovh/cds/engine/gorpmapper"
 	"github.com/ovh/cds/engine/service"
@@ -268,5 +266,97 @@ func (api *API) deleteUserHandler() service.Handler {
 		}
 
 		return service.WriteJSON(w, nil, http.StatusOK)
+	}
+}
+
+func (api *API) postLinkExternalUserWithCDSHandler() service.Handler {
+	return func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		vars := mux.Vars(r)
+
+		// Extract consumer type from request, is invalid or not in api drivers list return an error
+		consumerType := sdk.AuthConsumerType(vars["consumerType"])
+		if !consumerType.IsValid() {
+			return sdk.WithStack(sdk.ErrNotFound)
+		}
+		authDriver, ok := api.AuthenticationDrivers[consumerType]
+		if !ok {
+			return sdk.WithStack(sdk.ErrNotFound)
+		}
+
+		// Extract and validate signin request
+		var req sdk.AuthConsumerSigninRequest
+		if err := service.UnmarshalBody(r, &req); err != nil {
+			return err
+		}
+
+		// Extract and validate signin state
+		switch x := authDriver.GetDriver().(type) {
+		case sdk.DriverWithSignInRequest:
+			if err := x.CheckSigninRequest(req); err != nil {
+				return err
+			}
+		default:
+			return sdk.WithStack(sdk.ErrInvalidData)
+		}
+
+		// Convert code to external user info
+		userInfo, err := authDriver.GetUserInfo(ctx, req)
+		if err != nil {
+			return err
+		}
+
+		tx, err := api.mustDB().Begin()
+		if err != nil {
+			return sdk.WithStack(err)
+		}
+		defer tx.Rollback() // nolint
+
+		user := getUserConsumer(ctx)
+		log.Warn(ctx, "%s is %s", user.GetUsername(), userInfo.Username)
+
+		if err := tx.Commit(); err != nil {
+			return sdk.WithStack(err)
+		}
+
+		return service.WriteJSON(w, nil, http.StatusOK)
+	}
+}
+
+func (api *API) postAskLinkExternalUserWithCDSHandler() service.Handler {
+	return func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+		vars := mux.Vars(r)
+
+		// Extract consumer type from request, is invalid or not in api drivers list return an error
+		consumerType := sdk.AuthConsumerType(vars["consumerType"])
+		if !consumerType.IsValid() {
+			return sdk.WithStack(sdk.ErrNotFound)
+		}
+		authDriver, ok := api.AuthenticationDrivers[consumerType]
+		if !ok {
+			return sdk.WithStack(sdk.ErrNotFound)
+		}
+
+		driverRedirect, ok := authDriver.GetDriver().(sdk.DriverWithRedirect)
+		if !ok {
+			return nil
+		}
+
+		var signinState = sdk.AuthSigninConsumerToken{
+			RedirectURI: QueryString(r, "redirect_uri"),
+		}
+		// Get the origin from request if set
+		signinState.Origin = QueryString(r, "origin")
+
+		if signinState.Origin != "" && !(signinState.Origin == "cdsctl" || signinState.Origin == "ui") {
+			return sdk.NewErrorFrom(sdk.ErrWrongRequest, "invalid given origin value")
+		}
+		signinState.LinkUser = true
+
+		// Redirect to the right signin page depending on the consumer type
+		redirect, err := driverRedirect.GetSigninURI(signinState)
+		if err != nil {
+			return err
+		}
+		return service.WriteJSON(w, redirect, http.StatusOK)
 	}
 }

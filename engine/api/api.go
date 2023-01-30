@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	corpsso2 "github.com/ovh/cds/engine/api/driver/corpsso"
+	ldap2 "github.com/ovh/cds/engine/api/driver/ldap"
 	"io"
 	"net/http"
 	"net/url"
@@ -105,8 +107,33 @@ type Configuration struct {
 		RSAPrivateKeys               []authentication.KeyConfig `toml:"rsaPrivateKeys" default:"" comment:"RSA Private Keys used to sign and verify the JWT Tokens issued by the API \nThis is mandatory." json:"-" mapstructure:"rsaPrivateKeys"`
 		AllowedOrganizations         sdk.StringSlice            `toml:"allowedOrganizations" comment:"The list of allowed organizations for CDS users, let empty to authorize all organizations." json:"allowedOrganizations"`
 		LDAP                         struct {
+			SigninEnabled bool `toml:"signinEnabled" default:"false" json:"SigninEnabled"`
+		} `toml:"ldap" json:"ldap"`
+		Local struct {
+			SignupAllowedDomains string `toml:"signupAllowedDomains" default:"" comment:"Allow signup from selected domains only - comma separated. Example: your-domain.com,another-domain.com" commented:"true" json:"signupAllowedDomains"`
+			SignupDisabled       bool   `toml:"signupDisabled" default:"false" json:"signupDisabled"`
+			SigninEnabled        bool   `toml:"signinEnabled" default:"true" json:"SigninEnabled"`
+			Organization         string `toml:"organization" default:"default" comment:"Organization assigned to user created by local authentication" json:"organization"`
+		} `toml:"local" json:"local"`
+		CorporateSSO struct {
+			SigninEnabled bool `toml:"signinEnabled" default:"false" json:"SigninEnabled"`
+		} `json:"corporate_sso" toml:"corporateSSO"`
+		Github struct {
+			SigninEnabled bool   `toml:"signinEnabled" default:"false" json:"SigninEnabled"`
+			Organization  string `toml:"organization" default:"default" comment:"Organization assigned to user created by github authentication" json:"organization"`
+		} `toml:"github" json:"github" comment:"#######\n CDS <-> GitHub Auth. Documentation on https://ovh.github.io/cds/docs/integrations/github/github_authentication/ \n######"`
+		Gitlab struct {
+			SigninEnabled bool   `toml:"signinEnabled" default:"false" json:"SigninEnabled"`
+			Organization  string `toml:"organization" default:"default" comment:"Organization assigned to user created by gitlab authentication" json:"organization"`
+		} `toml:"gitlab" json:"gitlab" comment:"#######\n CDS <-> GitLab Auth. Documentation on https://ovh.github.io/cds/docs/integrations/gitlab/gitlab_authentication/ \n######"`
+		OIDC struct {
+			SigninEnabled bool   `toml:"signinEnabled" default:"false" json:"signinEnabled"`
+			Organization  string `toml:"organization" default:"default" comment:"Organization assigned to user created by openid authentication" json:"organization"`
+		} `toml:"oidc" json:"oidc" comment:"#######\n CDS <-> Open ID Connect Auth. Documentation on https://ovh.github.io/cds/docs/integrations/openid-connect/ \n######"`
+	} `toml:"auth" comment:"##############################\n CDS Authentication Settings# \n#############################" json:"auth"`
+	Drivers struct {
+		LDAP struct {
 			Enabled         bool   `toml:"enabled" default:"false" json:"enabled"`
-			SignupDisabled  bool   `toml:"signupDisabled" default:"false" json:"signupDisabled"`
 			Host            string `toml:"host" json:"host"`
 			Port            int    `toml:"port" default:"636" json:"port"`
 			SSL             bool   `toml:"ssl" default:"true" json:"ssl"`
@@ -118,15 +145,11 @@ type Configuration struct {
 			ManagerPassword string `toml:"managerPassword" default:"SECRET_PASSWORD_MANAGER" comment:"Define it if ldapsearch need to be authenticated" json:"-"`
 		} `toml:"ldap" json:"ldap"`
 		Local struct {
-			Enabled              bool   `toml:"enabled" default:"true" json:"enabled"`
-			SignupDisabled       bool   `toml:"signupDisabled" default:"false" json:"signupDisabled"`
-			SignupAllowedDomains string `toml:"signupAllowedDomains" default:"" comment:"Allow signup from selected domains only - comma separated. Example: your-domain.com,another-domain.com" commented:"true" json:"signupAllowedDomains"`
-			Organization         string `toml:"organization" default:"default" comment:"Organization assigned to user created by local authentication" json:"organization"`
+			Enabled bool `toml:"enabled" default:"true" json:"enabled"`
 		} `toml:"local" json:"local"`
 		CorporateSSO struct {
 			MFASupportEnabled bool   `json:"mfa_support_enabled" default:"false" toml:"mfaSupportEnabled"`
 			Enabled           bool   `json:"enabled" default:"false" toml:"enabled"`
-			SignupDisabled    bool   `json:"signupDisabled" default:"false" toml:"signupDisabled"`
 			RedirectMethod    string `json:"redirect_method" toml:"redirectMethod"`
 			RedirectURL       string `json:"redirect_url" toml:"redirectURL"`
 			Keys              struct {
@@ -139,31 +162,25 @@ type Configuration struct {
 			} `json:"-" toml:"keys"`
 		} `json:"corporate_sso" toml:"corporateSSO"`
 		Github struct {
-			Enabled        bool   `toml:"enabled" default:"false" json:"enabled"`
-			SignupDisabled bool   `toml:"signupDisabled" default:"false" json:"signupDisabled"`
-			URL            string `toml:"url" json:"url" default:"https://github.com" comment:"GitHub URL"`
-			APIURL         string `toml:"apiUrl" json:"apiUrl" default:"https://api.github.com" comment:"GitHub API URL"`
-			ClientID       string `toml:"clientId" json:"-" comment:"GitHub OAuth Client ID"`
-			ClientSecret   string `toml:"clientSecret" json:"-" comment:"GitHub OAuth Client Secret"`
-			Organization   string `toml:"organization" default:"default" comment:"Organization assigned to user created by github authentication" json:"organization"`
+			Enabled      bool   `toml:"enabled" default:"false" json:"enabled"`
+			URL          string `toml:"url" json:"url" default:"https://github.com" comment:"GitHub URL"`
+			APIURL       string `toml:"apiUrl" json:"apiUrl" default:"https://api.github.com" comment:"GitHub API URL"`
+			ClientID     string `toml:"clientId" json:"-" comment:"GitHub OAuth Client ID"`
+			ClientSecret string `toml:"clientSecret" json:"-" comment:"GitHub OAuth Client Secret"`
 		} `toml:"github" json:"github" comment:"#######\n CDS <-> GitHub Auth. Documentation on https://ovh.github.io/cds/docs/integrations/github/github_authentication/ \n######"`
 		Gitlab struct {
-			Enabled        bool   `toml:"enabled" default:"false" json:"enabled"`
-			SignupDisabled bool   `toml:"signupDisabled" default:"false" json:"signupDisabled"`
-			URL            string `toml:"url" json:"url" default:"https://gitlab.com" comment:"GitLab URL"`
-			ApplicationID  string `toml:"applicationID" json:"-" comment:"GitLab OAuth Application ID"`
-			Secret         string `toml:"secret" json:"-" comment:"GitLab OAuth Application Secret"`
-			Organization   string `toml:"organization" default:"default" comment:"Organization assigned to user created by gitlab authentication" json:"organization"`
+			Enabled       bool   `toml:"enabled" default:"false" json:"enabled"`
+			URL           string `toml:"url" json:"url" default:"https://gitlab.com" comment:"GitLab URL"`
+			ApplicationID string `toml:"applicationID" json:"-" comment:"GitLab OAuth Application ID"`
+			Secret        string `toml:"secret" json:"-" comment:"GitLab OAuth Application Secret"`
 		} `toml:"gitlab" json:"gitlab" comment:"#######\n CDS <-> GitLab Auth. Documentation on https://ovh.github.io/cds/docs/integrations/gitlab/gitlab_authentication/ \n######"`
 		OIDC struct {
-			Enabled        bool   `toml:"enabled" default:"false" json:"enabled"`
-			SignupDisabled bool   `toml:"signupDisabled" default:"false" json:"signupDisabled"`
-			URL            string `toml:"url" json:"url" default:"" comment:"Open ID connect config URL"`
-			ClientID       string `toml:"clientId" json:"-" comment:"OIDC Client ID"`
-			ClientSecret   string `toml:"clientSecret" json:"-" comment:"OIDC Client Secret"`
-			Organization   string `toml:"organization" default:"default" comment:"Organization assigned to user created by openid authentication" json:"organization"`
+			Enabled      bool   `toml:"enabled" default:"false" json:"enabled"`
+			URL          string `toml:"url" json:"url" default:"" comment:"Open ID connect config URL"`
+			ClientID     string `toml:"clientId" json:"-" comment:"OIDC Client ID"`
+			ClientSecret string `toml:"clientSecret" json:"-" comment:"OIDC Client Secret"`
 		} `toml:"oidc" json:"oidc" comment:"#######\n CDS <-> Open ID Connect Auth. Documentation on https://ovh.github.io/cds/docs/integrations/openid-connect/ \n######"`
-	} `toml:"auth" comment:"##############################\n CDS Authentication Settings# \n#############################" json:"auth"`
+	} `toml:"drivers" comment:"##############################\n CDS External drivers Settings\n############################# json:"drivers"`
 	SMTP struct {
 		Disable               bool   `toml:"disable" default:"true" json:"disable" comment:"Set to false to enable the internal SMTP client. If false, emails will be displayed in CDS API Log."`
 		Host                  string `toml:"host" json:"host" comment:"smtp host"`
@@ -305,6 +322,7 @@ type API struct {
 		RunResultSynchronizedError *stats.Int64Measure
 	}
 	AuthenticationDrivers map[sdk.AuthConsumerType]sdk.AuthDriver
+	ExternalDrivers       []string
 }
 
 // ApplyConfiguration apply an object of type api.Configuration after checking it
@@ -398,16 +416,16 @@ func (a *API) CheckConfiguration(config interface{}) error {
 	}
 
 	// Check authentication driver
-	if aConfig.Auth.Local.Enabled && (aConfig.Auth.Local.Organization == "" || !aConfig.Auth.AllowedOrganizations.Contains(aConfig.Auth.Local.Organization)) {
+	if aConfig.Drivers.Local.Enabled && aConfig.Auth.Local.SigninEnabled && (aConfig.Auth.Local.Organization == "" || !aConfig.Auth.AllowedOrganizations.Contains(aConfig.Auth.Local.Organization)) {
 		return errors.New("local authentication driver organization empty or not allowed in field 'allowedOrganizations'")
 	}
-	if aConfig.Auth.OIDC.Enabled && (aConfig.Auth.OIDC.Organization == "" || !aConfig.Auth.AllowedOrganizations.Contains(aConfig.Auth.OIDC.Organization)) {
+	if aConfig.Drivers.OIDC.Enabled && aConfig.Auth.OIDC.SigninEnabled && (aConfig.Auth.OIDC.Organization == "" || !aConfig.Auth.AllowedOrganizations.Contains(aConfig.Auth.OIDC.Organization)) {
 		return errors.New("oidc authentication driver organization empty or not allowed in field 'allowedOrganizations'")
 	}
-	if aConfig.Auth.Gitlab.Enabled && (aConfig.Auth.Gitlab.Organization == "" || !aConfig.Auth.AllowedOrganizations.Contains(aConfig.Auth.Gitlab.Organization)) {
+	if aConfig.Drivers.Gitlab.Enabled && aConfig.Auth.Gitlab.SigninEnabled && (aConfig.Auth.Gitlab.Organization == "" || !aConfig.Auth.AllowedOrganizations.Contains(aConfig.Auth.Gitlab.Organization)) {
 		return errors.New("gitlab authentication driver organization empty or not allowed in field 'allowedOrganizations'")
 	}
-	if aConfig.Auth.Github.Enabled && (aConfig.Auth.Github.Organization == "" || !aConfig.Auth.AllowedOrganizations.Contains(aConfig.Auth.Github.Organization)) {
+	if aConfig.Drivers.Github.Enabled && aConfig.Auth.Github.SigninEnabled && (aConfig.Auth.Github.Organization == "" || !aConfig.Auth.AllowedOrganizations.Contains(aConfig.Auth.Github.Organization)) {
 		return errors.New("github authentication driver organization empty or not allowed in field 'allowedOrganizations'")
 	}
 
@@ -661,9 +679,10 @@ func (a *API) Serve(ctx context.Context) error {
 
 	log.Info(ctx, "Initializing Authentication drivers...")
 	a.AuthenticationDrivers = make(map[sdk.AuthConsumerType]sdk.AuthDriver)
+	a.ExternalDrivers = make([]string, 0)
 
 	a.AuthenticationDrivers[sdk.ConsumerBuiltin] = builtin.NewDriver()
-	if a.Config.Auth.Local.Enabled {
+	if a.Config.Drivers.Local.Enabled && a.Config.Auth.Local.SigninEnabled {
 		a.AuthenticationDrivers[sdk.ConsumerLocal] = local.NewDriver(
 			ctx,
 			a.Config.Auth.Local.SignupDisabled,
@@ -673,71 +692,85 @@ func (a *API) Serve(ctx context.Context) error {
 		)
 	}
 
-	if a.Config.Auth.LDAP.Enabled {
-		a.AuthenticationDrivers[sdk.ConsumerLDAP], err = ldap.NewDriver(
-			ctx,
-			a.Config.Auth.LDAP.SignupDisabled,
-			ldap.Config{
-				Host:            a.Config.Auth.LDAP.Host,
-				Port:            a.Config.Auth.LDAP.Port,
-				SSL:             a.Config.Auth.LDAP.SSL,
-				RootDN:          a.Config.Auth.LDAP.RootDN,
-				UserSearchBase:  a.Config.Auth.LDAP.UserSearchBase,
-				UserSearch:      a.Config.Auth.LDAP.UserSearch,
-				UserFullname:    a.Config.Auth.LDAP.UserFullname,
-				ManagerDN:       a.Config.Auth.LDAP.ManagerDN,
-				ManagerPassword: a.Config.Auth.LDAP.ManagerPassword,
-			},
-		)
-		if err != nil {
-			return err
-		}
-	}
-	if a.Config.Auth.Github.Enabled {
-		a.AuthenticationDrivers[sdk.ConsumerGithub] = github.NewDriver(
-			a.Config.Auth.Github.SignupDisabled,
-			a.Config.URL.UI,
-			a.Config.Auth.Github.URL,
-			a.Config.Auth.Github.APIURL,
-			a.Config.Auth.Github.ClientID,
-			a.Config.Auth.Github.ClientSecret,
-			a.Config.Auth.Github.Organization,
-		)
-	}
-	if a.Config.Auth.Gitlab.Enabled {
-		a.AuthenticationDrivers[sdk.ConsumerGitlab] = gitlab.NewDriver(
-			a.Config.Auth.Gitlab.SignupDisabled,
-			a.Config.URL.UI,
-			a.Config.Auth.Gitlab.URL,
-			a.Config.Auth.Gitlab.ApplicationID,
-			a.Config.Auth.Gitlab.Secret,
-			a.Config.Auth.Gitlab.Organization,
-		)
-	}
-	if a.Config.Auth.OIDC.Enabled {
-		a.AuthenticationDrivers[sdk.ConsumerOIDC], err = oidc.NewDriver(
-			a.Config.Auth.OIDC.SignupDisabled,
-			a.Config.URL.UI,
-			a.Config.Auth.OIDC.URL,
-			a.Config.Auth.OIDC.ClientID,
-			a.Config.Auth.OIDC.ClientSecret,
-			a.Config.Auth.OIDC.Organization,
-		)
-		if err != nil {
-			return err
+	if a.Config.Drivers.LDAP.Enabled {
+		a.ExternalDrivers = append(a.ExternalDrivers, string(sdk.ConsumerLDAP))
+		if a.Config.Auth.LDAP.SigninEnabled {
+			a.AuthenticationDrivers[sdk.ConsumerLDAP], err = ldap.NewDriver(
+				ctx,
+				false,
+				ldap2.Config{
+					Host:            a.Config.Drivers.LDAP.Host,
+					Port:            a.Config.Drivers.LDAP.Port,
+					SSL:             a.Config.Drivers.LDAP.SSL,
+					RootDN:          a.Config.Drivers.LDAP.RootDN,
+					UserSearchBase:  a.Config.Drivers.LDAP.UserSearchBase,
+					UserSearch:      a.Config.Drivers.LDAP.UserSearch,
+					UserFullname:    a.Config.Drivers.LDAP.UserFullname,
+					ManagerDN:       a.Config.Drivers.LDAP.ManagerDN,
+					ManagerPassword: a.Config.Drivers.LDAP.ManagerPassword,
+				},
+			)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
-	if a.Config.Auth.CorporateSSO.Enabled {
-		driverConfig := corpsso.Config{
-			MFASupportEnabled: a.Config.Auth.CorporateSSO.MFASupportEnabled,
+	if a.Config.Drivers.Github.Enabled {
+		a.ExternalDrivers = append(a.ExternalDrivers, string(sdk.ConsumerGithub))
+
+		if a.Config.Auth.Github.SigninEnabled {
+			a.AuthenticationDrivers[sdk.ConsumerGithub] = github.NewDriver(
+				false,
+				a.Config.URL.UI,
+				a.Config.Drivers.Github.URL,
+				a.Config.Drivers.Github.APIURL,
+				a.Config.Drivers.Github.ClientID,
+				a.Config.Drivers.Github.ClientSecret,
+				a.Config.Auth.Github.Organization,
+			)
 		}
-		driverConfig.Request.Keys.RequestSigningKey = a.Config.Auth.CorporateSSO.Keys.RequestSigningKey
-		driverConfig.Request.RedirectMethod = a.Config.Auth.CorporateSSO.RedirectMethod
-		driverConfig.Request.RedirectURL = a.Config.Auth.CorporateSSO.RedirectURL
-		driverConfig.Token.SigningKey = a.Config.Auth.CorporateSSO.Keys.TokenSigningKey
-		driverConfig.Token.KeySigningKey.KeySigningKey = a.Config.Auth.CorporateSSO.Keys.TokenKeySigningKey.KeySigningKey
-		driverConfig.Token.KeySigningKey.SigningKeyClaim = a.Config.Auth.CorporateSSO.Keys.TokenKeySigningKey.SigningKeyClaim
+	}
+	if a.Config.Drivers.Gitlab.Enabled {
+		a.ExternalDrivers = append(a.ExternalDrivers, string(sdk.ConsumerGitlab))
+		if a.Config.Auth.Gitlab.SigninEnabled {
+			a.AuthenticationDrivers[sdk.ConsumerGitlab] = gitlab.NewDriver(
+				false,
+				a.Config.URL.UI,
+				a.Config.Drivers.Gitlab.URL,
+				a.Config.Drivers.Gitlab.ApplicationID,
+				a.Config.Drivers.Gitlab.Secret,
+				a.Config.Auth.Gitlab.Organization,
+			)
+		}
+	}
+	if a.Config.Drivers.OIDC.Enabled {
+		a.ExternalDrivers = append(a.ExternalDrivers, string(sdk.ConsumerOIDC))
+		if a.Config.Auth.OIDC.SigninEnabled {
+			a.AuthenticationDrivers[sdk.ConsumerOIDC], err = oidc.NewDriver(
+				false,
+				a.Config.URL.UI,
+				a.Config.Drivers.OIDC.URL,
+				a.Config.Drivers.OIDC.ClientID,
+				a.Config.Drivers.OIDC.ClientSecret,
+				a.Config.Auth.OIDC.Organization,
+			)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	if a.Config.Drivers.CorporateSSO.Enabled && a.Config.Auth.CorporateSSO.SigninEnabled {
+		driverConfig := corpsso2.SSOConfig{
+			MFASupportEnabled: a.Config.Drivers.CorporateSSO.MFASupportEnabled,
+		}
+		driverConfig.Request.Keys.RequestSigningKey = a.Config.Drivers.CorporateSSO.Keys.RequestSigningKey
+		driverConfig.Request.RedirectMethod = a.Config.Drivers.CorporateSSO.RedirectMethod
+		driverConfig.Request.RedirectURL = a.Config.Drivers.CorporateSSO.RedirectURL
+		driverConfig.Token.SigningKey = a.Config.Drivers.CorporateSSO.Keys.TokenSigningKey
+		driverConfig.Token.KeySigningKey.KeySigningKey = a.Config.Drivers.CorporateSSO.Keys.TokenKeySigningKey.KeySigningKey
+		driverConfig.Token.KeySigningKey.SigningKeyClaim = a.Config.Drivers.CorporateSSO.Keys.TokenKeySigningKey.SigningKeyClaim
 		driverConfig.AllowedOrganizations = a.Config.Auth.AllowedOrganizations
 
 		a.AuthenticationDrivers[sdk.ConsumerCorporateSSO] = corpsso.NewDriver(driverConfig)
